@@ -1,0 +1,942 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Smart House Blueprint</title>
+  <style>
+    /* CSS Variables for easy theming and maintenance */
+    :root {
+      /* Theme Variables - Default is Light Mode */
+      --bg-gradient-1: #e0f7fa;
+      --bg-gradient-2: #bbdefb;
+      --bg-gradient-3: #c5cae9;
+      --card-bg: rgba(255, 255, 255, 0.7);
+      --card-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+      --text-primary: #263238;
+      --text-secondary: #546e7a;
+      --border-color: rgba(0, 0, 0, 0.1);
+      
+      /* Color Palette */
+      --primary: #4361ee;
+      --primary-light: #4895ef;
+      --secondary: #3f37c9;
+      --accent: #f72585;
+      --success: #4cc9f0;
+      --warning: #f8961e;
+      --danger: #f94144;
+      
+      /* House Colors */
+      --roof-color: #c25450;
+      --roof-shadow: #9c423e;
+      --wall-color: #f5f5f5;
+      --wall-border: #e0e0e0;
+      --floor-color: #f9f9f9;
+      --floor-border: #e9e9e9;
+      --room-border: #cfd8dc;
+      --door-color: #8d6e63;
+      --window-color: #bbdefb;
+      
+      /* Furniture Colors */
+      --furniture-sofa: #78909c;
+      --furniture-bed: #90a4ae;
+      --furniture-bath: #b0bec5;
+      --furniture-table: #a1887f;
+      
+      /* Lamp Colors */
+      --lamp-on: #ffd600;
+      --lamp-off: #9e9e9e;
+      --lamp-glow: rgba(255, 214, 0, 0.4);
+      --switch-on: #4caf50;
+      --switch-off: #90a4ae;
+      --switch-thumb: #ffffff;
+      
+      /* Spacing and Sizing */
+      --spacing-xs: 0.25rem;
+      --spacing-sm: 0.5rem;
+      --spacing-md: 1rem;
+      --spacing-lg: 1.5rem;
+      --spacing-xl: 2rem;
+      --border-radius-sm: 4px;
+      --border-radius-md: 8px;
+      --border-radius-lg: 16px;
+      
+      /* Transitions */
+      --transition-fast: 0.2s;
+      --transition-normal: 0.3s;
+      --transition-slow: 0.5s;
+    }
+    
+    /* Dark Mode Theme */
+    [data-theme="dark"] {
+      --bg-gradient-1: #1a237e;
+      --bg-gradient-2: #283593;
+      --bg-gradient-3: #303f9f;
+      --card-bg: rgba(30, 30, 30, 0.8);
+      --card-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+      --text-primary: #eceff1;
+      --text-secondary: #b0bec5;
+      --border-color: rgba(255, 255, 255, 0.1);
+      
+      --roof-color: #ad2a24;
+      --roof-shadow: #7d1f1a;
+      --wall-color: #424242;
+      --wall-border: #616161;
+      --floor-color: #303030;
+      --floor-border: #424242;
+      --room-border: #546e7a;
+      --door-color: #5d4037;
+      --window-color: #1976d2;
+      
+      --furniture-sofa: #455a64;
+      --furniture-bed: #546e7a;
+      --furniture-bath: #607d8b;
+      --furniture-table: #795548;
+    }
+    
+    /* Base Styles */
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      transition: background-color var(--transition-normal),
+                 color var(--transition-normal),
+                 transform var(--transition-normal),
+                opacity var(--transition-normal);
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: linear-gradient(135deg, var(--bg-gradient-1), var(--bg-gradient-2), var(--bg-gradient-3));
+      background-size: 400% 400%;
+      animation: gradient-animation 15s ease infinite;
+      color: var(--text-primary);
+      min-height: 100vh;
+      padding: var(--spacing-lg);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      overflow-x: hidden;
+    }
+    
+    @keyframes gradient-animation {
+      0% { background-position: 0% 50%; }
+      50% { background-position: 100% 50%; }
+      100% { background-position: 0% 50%; }
+    }
+    
+    /* Blueprint Header Styles */
+    .blueprint-header {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      margin-bottom: var(--spacing-xl);
+      width: 100%;
+      max-width: 900px;
+      position: relative;
+      padding-bottom: var(--spacing-lg);
+    }
+    
+    .blueprint-header::before {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      height: 2px;
+      background: linear-gradient(to right, transparent, var(--primary), transparent);
+    }
+    
+    .blueprint-title {
+      font-size: 2.5rem;
+      margin-bottom: var(--spacing-sm);
+      color: var(--text-primary);
+      position: relative;
+      display: inline-block;
+    }
+    
+    .blueprint-title::after {
+      content: 'v1.5';
+      position: absolute;
+      top: 0;
+      right: -40px;
+      font-size: 0.8rem;
+      background-color: var(--primary);
+      color: white;
+      padding: 2px 6px;
+      border-radius: 10px;
+      font-weight: normal;
+    }
+    
+    .blueprint-subtitle {
+      font-size: 1.1rem;
+      color: var(--text-secondary);
+      display: flex;
+      align-items: center;
+      gap: var(--spacing-sm);
+    }
+    
+    /* Theme Switcher */
+    .theme-switch-wrapper {
+      position: absolute;
+      top: 15px;
+      right: 15px;
+      display: flex;
+      align-items: center;
+    }
+    
+    .theme-switch {
+      display: inline-block;
+      height: 24px;
+      position: relative;
+      width: 48px;
+    }
+    
+    .theme-switch input {
+      display: none;
+    }
+    
+    .slider {
+      background-color: var(--switch-off);
+      bottom: 0;
+      cursor: pointer;
+      left: 0;
+      position: absolute;
+      right: 0;
+      top: 0;
+      transition: var(--transition-normal);
+      border-radius: 24px;
+    }
+    
+    .slider:before {
+      background-color: var(--switch-thumb);
+      bottom: 2px;
+      content: "";
+      height: 20px;
+      left: 2px;
+      position: absolute;
+      transition: var(--transition-normal);
+      width: 20px;
+      border-radius: 50%;
+    }
+    
+    input:checked + .slider {
+      background-color: var(--primary);
+    }
+    
+    input:checked + .slider:before {
+      transform: translateX(24px);
+    }
+    
+    .theme-icon {
+      margin-right: 10px;
+      font-size: 1.2rem;
+    }
+    
+    /* House Container */
+    .house-container {
+      width: 100%;
+      max-width: 900px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      perspective: 1000px;
+      position: relative;
+    }
+    
+    /* House Structure */
+    .house {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      background-color: var(--wall-color);
+      border: 3px solid var(--wall-border);
+      border-radius: var(--border-radius-md);
+      box-shadow: var(--card-shadow);
+      overflow: hidden;
+      transform-style: preserve-3d;
+      transform: rotateX(5deg);
+    }
+    
+    /* Roof Styles */
+    .roof-container {
+      position: relative;
+      width: 100%;
+      height: 80px;
+      overflow: visible;
+      margin-bottom: -20px;
+      z-index: 5;
+    }
+    
+    .roof-left {
+      position: absolute;
+      left: 0;
+      width: 51%;
+      height: 100%;
+      background-color: var(--roof-color);
+      clip-path: polygon(0% 100%, 100% 100%, 100% 0%);
+      transform: perspective(500px) rotateX(20deg);
+      transform-origin: bottom right;
+      box-shadow: -5px 5px 15px rgba(0, 0, 0, 0.2);
+    }
+    
+    .roof-right {
+      position: absolute;
+      right: 0;
+      width: 51%;
+      height: 100%;
+      background-color: var(--roof-shadow);
+      clip-path: polygon(0% 0%, 0% 100%, 100% 100%);
+      transform: perspective(500px) rotateX(20deg);
+      transform-origin: bottom left;
+      box-shadow: 5px 5px 15px rgba(0, 0, 0, 0.2);
+    }
+    
+    .chimney {
+      position: absolute;
+      right: 25%;
+      bottom: 20px;
+      width: 30px;
+      height: 50px;
+      background-color: var(--roof-shadow);
+      z-index: 2;
+      border-radius: 3px 3px 0 0;
+    }
+    
+    .chimney::after {
+      content: '';
+      position: absolute;
+      top: -5px;
+      left: -2px;
+      right: -2px;
+      height: 10px;
+      background-color: var(--roof-shadow);
+      border-radius: 3px 3px 0 0;
+    }
+    
+    /* Floor Styles */
+    .floor {
+      position: relative;
+      padding: var(--spacing-lg);
+      background-color: var(--floor-color);
+      border-bottom: 2px solid var(--floor-border);
+    }
+    
+    .floor-label {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background-color: var(--primary);
+      color: white;
+      padding: var(--spacing-xs) var(--spacing-sm);
+      border-radius: 20px;
+      font-size: 0.85rem;
+      font-weight: bold;
+      z-index: 2;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    }
+    
+    /* Day/Night Indicator */
+    .day-night {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      display: flex;
+      align-items: center;
+      font-size: 0.85rem;
+      color: var(--text-secondary);
+      font-weight: bold;
+    }
+    
+    .day-night-icon {
+      margin-left: 5px;
+      font-size: 1.2rem;
+    }
+    
+    /* Rooms Layout */
+    .rooms {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      grid-template-rows: 1fr;
+      gap: var(--spacing-md);
+      min-height: 250px;
+      margin-top: var(--spacing-lg);
+    }
+    
+    /* Room Styles */
+    .room {
+      position: relative;
+      background-color: var(--card-bg);
+      border: 1px solid var(--room-border);
+      border-radius: var(--border-radius-md);
+      padding: var(--spacing-md);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 200px;
+      transition: transform var(--transition-normal), box-shadow var(--transition-normal);
+    }
+    
+    .room:hover {
+      transform: translateY(-5px);
+      box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1);
+    }
+    
+    .room-name {
+      font-size: 1rem;
+      font-weight: bold;
+      margin-bottom: var(--spacing-md);
+      text-align: center;
+    }
+    
+    /* Window and Door Styles */
+    .window {
+      width: 30px;
+      height: 40px;
+      background-color: var(--window-color);
+      border-radius: 3px;
+      position: absolute;
+      top: 15px;
+      right: 15px;
+      border: 1px solid rgba(0, 0, 0, 0.1);
+    }
+    
+    .window::before {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background-color: rgba(255, 255, 255, 0.5);
+    }
+    
+    .window::after {
+      content: '';
+      position: absolute;
+      left: 50%;
+      top: 0;
+      bottom: 0;
+      width: 1px;
+      background-color: rgba(255, 255, 255, 0.5);
+    }
+    
+    .door {
+      width: 25px;
+      height: 45px;
+      background-color: var(--door-color);
+      position: absolute;
+      bottom: 0;
+      left: 15px;
+      border-radius: 3px 3px 0 0;
+    }
+    
+    .door::before {
+      content: '';
+      position: absolute;
+      width: 5px;
+      height: 5px;
+      background-color: rgba(255, 255, 255, 0.5);
+      border-radius: 50%;
+      top: 50%;
+      right: 5px;
+      transform: translateY(-50%);
+    }
+    
+    /* Lamp Styles */
+    .lamp-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      margin-top: auto;
+    }
+    
+    .lamp {
+      width: 50px;
+      height: 50px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.8rem;
+      cursor: pointer;
+      transition: all var(--transition-normal);
+      position: relative;
+    }
+    
+    .lamp.on {
+      background-color: var(--lamp-glow);
+      box-shadow: 0 0 20px var(--lamp-glow);
+    }
+    
+    .lamp.off {
+      background-color: transparent;
+      opacity: 0.7;
+    }
+    
+    /* Status Indicator */
+    .status {
+      margin-top: var(--spacing-xs);
+      font-size: 0.8rem;
+      font-weight: bold;
+      color: var(--text-secondary);
+    }
+    
+    .status.on {
+      color: var(--success);
+    }
+    
+    /* Connection Status */
+    .connection-status {
+      position: fixed;
+      top: 10px;
+      right: 10px;
+      padding: var(--spacing-xs) var(--spacing-sm);
+      border-radius: 20px;
+      font-size: 0.8rem;
+      font-weight: bold;
+      z-index: 100;
+    }
+    
+    .connection-status.connected {
+      background-color: var(--success);
+      color: white;
+    }
+    
+    .connection-status.disconnected {
+      background-color: var(--danger);
+      color: white;
+    }
+    
+    /* Toast Notification */
+    .toast {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%) translateY(100px);
+      background-color: rgba(0, 0, 0, 0.8);
+      color: white;
+      padding: var(--spacing-sm) var(--spacing-md);
+      border-radius: var(--border-radius-md);
+      font-size: 0.9rem;
+      z-index: 1000;
+      opacity: 0;
+      transition: transform 0.3s ease, opacity 0.3s ease;
+    }
+    
+    .toast.show {
+      transform: translateX(-50%) translateY(0);
+      opacity: 1;
+    }
+    
+    /* Header and Footer */
+    header {
+      text-align: center;
+      margin-bottom: var(--spacing-xl);
+    }
+    
+    header h1 {
+      font-size: 2rem;
+      margin-bottom: var(--spacing-xs);
+    }
+    
+    header .subtitle {
+      color: var(--text-secondary);
+    }
+    
+    footer {
+      margin-top: var(--spacing-xl);
+      padding: var(--spacing-md);
+      color: var(--text-secondary);
+      font-size: 0.8rem;
+      text-align: center;
+    }
+    
+    /* Responsive Adjustments */
+    @media (max-width: 768px) {
+      .rooms {
+        grid-template-columns: 1fr;
+      }
+      
+      .room {
+        min-height: 150px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="connection-status" class="connection-status disconnected">Disconnected</div>
+  
+  <header>
+    <h1>Smart House Control Panel</h1>
+    <p class="subtitle">Interactive Visual Floorplan</p>
+  </header>
+  
+  <div class="house-container">
+    <!-- Roof -->
+    <div class="roof-container">
+      <div class="roof-left"></div>
+      <div class="roof-right"></div>
+      <div class="chimney"></div>
+    </div>
+    
+    <!-- House Structure -->
+    <div class="house">
+      <!-- Second Floor (Top) -->
+      <div class="floor" id="floor2">
+        <div class="floor-label">Floor 2</div>
+        <div class="rooms">
+          <div class="room master-bedroom" data-room="master-bedroom">
+            <h2 class="room-name">Master Bedroom</h2>
+            <div class="window"></div>
+            <div class="lamp-container">
+              <div class="lamp off" data-lamp="master-bedroom">💡</div>
+            </div>
+            <div class="status">OFF</div>
+          </div>
+          
+          <div class="room bedroom" data-room="bedroom">
+            <h2 class="room-name">Bedroom</h2>
+            <div class="window"></div>
+            <div class="door"></div>
+            <div class="lamp-container">
+              <div class="lamp off" data-lamp="bedroom">💡</div>
+            </div>
+            <div class="status">OFF</div>
+          </div>
+          
+          <div class="room bathroom" data-room="bathroom">
+            <h2 class="room-name">Bathroom</h2>
+            <div class="window"></div>
+            <div class="lamp-container">
+              <div class="lamp off" data-lamp="bathroom">💡</div>
+            </div>
+            <div class="status">OFF</div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- First Floor (Bottom) -->
+      <div class="floor" id="floor1">
+        <div class="floor-label">Floor 1</div>
+        <div class="rooms">
+          <div class="room living-room" data-room="living-room">
+            <h2 class="room-name">Living Room</h2>
+            <div class="window"></div>
+            <div class="door"></div>
+            <div class="lamp-container">
+              <div class="lamp off" data-lamp="living-room">💡</div>
+            </div>
+            <div class="status">OFF</div>
+          </div>
+          
+          <div class="room kitchen" data-room="kitchen">
+            <h2 class="room-name">Kitchen</h2>
+            <div class="window"></div>
+            <div class="door"></div>
+            <div class="lamp-container">
+              <div class="lamp off" data-lamp="kitchen">💡</div>
+            </div>
+            <div class="status">OFF</div>
+          </div>
+          
+          <div class="room dining-room" data-room="dining-room">
+            <h2 class="room-name">Dining Room</h2>
+            <div class="window"></div>
+            <div class="lamp-container">
+              <div class="lamp off" data-lamp="dining-room">💡</div>
+            </div>
+            <div class="status">OFF</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <footer>Smart House Control Panel v1.0</footer>
+  <div id="toast" class="toast">Message</div>
+
+  <script>
+    /**
+     * Smart House Control Panel JavaScript
+     * Handles lamp toggling, API communication, and UI updates
+     */
+    
+    // Configuration object for easy updates
+    const config = {
+      // Get ESP32 IP from URL or default to user's input
+      espIP: window.location.hostname === 'localhost' || window.location.hostname === '' 
+        ? prompt('Enter your ESP32 IP address:', '192.168.0.100') 
+        : window.location.hostname,
+      
+      // Maps rooms to LED indices (for backward compatibility with existing ESP32 code)
+      roomToLed: {
+        'living-room': 0,     // LED 1
+        'kitchen': 1,         // LED 2
+        'bedroom': 2,         // LED 3
+        'dining-room': 0,     // Currently mapped to LED 1
+        'master-bedroom': 2,  // Currently mapped to LED 3
+        'bathroom': 1         // Currently mapped to LED 2
+      },
+      
+      // Default room states (all off initially)
+      roomStates: {},
+      
+      // Request settings
+      connectionTimeout: 5000,  // 5 seconds timeout for fetch requests
+      pollInterval: 5000,       // Poll ESP32 every 5 seconds
+      toastDuration: 3000,      // Toast message duration in ms
+      
+      // Debounce delay for button clicks (prevent multiple rapid clicks)
+      debounceDelay: 300
+    };
+
+    // DOM element references
+    const elements = {
+      connectionStatus: document.getElementById('connection-status'),
+      lamps: document.querySelectorAll('.lamp'),
+      toast: document.getElementById('toast')
+    };
+
+    // Initialize room states based on available lamps
+    elements.lamps.forEach(lamp => {
+      const roomName = lamp.getAttribute('data-lamp');
+      config.roomStates[roomName] = false;
+    });
+
+    /**
+     * Utility Functions
+     */
+    
+    // Debounce function to prevent multiple rapid clicks
+    function debounce(func, wait) {
+      let timeout;
+      return function(...args) {
+        const context = this;
+        clearTimeout(timeout);
+        timeout = setTimeout(() => func.apply(context, args), wait);
+      };
+    }
+
+    // Show toast message
+    function showToast(message, isError = false) {
+      const toast = elements.toast;
+      toast.textContent = message;
+      toast.style.backgroundColor = isError ? 'rgba(231, 76, 60, 0.9)' : 'rgba(0, 0, 0, 0.8)';
+      toast.classList.add('show');
+      
+      setTimeout(() => {
+        toast.classList.remove('show');
+      }, config.toastDuration);
+    }
+
+    // Update connection status indicator
+    function updateConnectionStatus(isConnected) {
+      if (isConnected) {
+        elements.connectionStatus.textContent = 'Connected';
+        elements.connectionStatus.classList.remove('disconnected');
+        elements.connectionStatus.classList.add('connected');
+      } else {
+        elements.connectionStatus.textContent = 'Disconnected';
+        elements.connectionStatus.classList.remove('connected');
+        elements.connectionStatus.classList.add('disconnected');
+      }
+    }
+
+    /**
+     * UI Update Functions
+     */
+    
+    // Update room UI based on state
+    function updateRoomUI(roomName, isOn) {
+      const room = document.querySelector(`.room[data-room="${roomName}"]`);
+      if (!room) return;
+      
+      const lamp = room.querySelector('.lamp');
+      const status = room.querySelector('.status');
+      
+      if (isOn) {
+        lamp.classList.remove('off');
+        lamp.classList.add('on');
+        status.classList.add('on');
+        status.textContent = 'ON';
+      } else {
+        lamp.classList.remove('on');
+        lamp.classList.add('off');
+        status.classList.remove('on');
+        status.textContent = 'OFF';
+      }
+    }
+
+    /**
+     * API Communication Functions
+     */
+    
+    // Toggle room light with modern endpoint and backward compatibility
+    async function toggleRoom(roomName) {
+      // Get lamp element
+      const lamp = document.querySelector(`.lamp[data-lamp="${roomName}"]`);
+      
+      // Prevent toggling if a request is already in progress
+      if (lamp.dataset.processing === 'true') return;
+      
+      const currentState = config.roomStates[roomName];
+      const newState = !currentState;
+      const ledIndex = config.roomToLed[roomName];
+      
+      // Update UI optimistically
+      updateRoomUI(roomName, newState);
+      
+      // Mark as processing
+      lamp.dataset.processing = 'true';
+      
+      try {
+        // Format the room name for the URL (convert dashes to underscores if needed)
+        const formattedRoomName = roomName.replace('-', '_');
+        
+        // First try the new room-based format
+        const stateText = newState ? 'on' : 'off';
+        const url = `http://${config.espIP}/${formattedRoomName}/${stateText}`;
+        
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), config.connectionTimeout);
+        
+        let response;
+        try {
+          // Try the new room-based endpoint first
+          response = await fetch(url, {
+            method: 'GET',
+            signal: controller.signal
+          });
+        } catch (error) {
+          // If new endpoint fails, fall back to the existing toggle endpoint
+          console.log('Falling back to legacy endpoint');
+          const legacyUrl = `http://${config.espIP}/t?l=${ledIndex}`;
+          response = await fetch(legacyUrl, {
+            method: 'POST',
+            signal: controller.signal
+          });
+        }
+        
+        clearTimeout(timeoutId);
+        
+        if (!response.ok) {
+          throw new Error(`HTTP error: ${response.status}`);
+        }
+        
+        // Try to parse JSON response
+        try {
+          const data = await response.json();
+          
+          // If we have LED state data, update all mapped rooms
+          if (data && data.s && data.s.length >= 3) {
+            // For each LED state, update all rooms mapped to that LED
+            for (const [room, ledIdx] of Object.entries(config.roomToLed)) {
+              if (ledIdx < data.s.length) {
+                const isOn = data.s[ledIdx] === 1;
+                config.roomStates[room] = isOn;
+                updateRoomUI(room, isOn);
+              }
+            }
+          }
+        } catch (e) {
+          // If not JSON, just update the current room state
+          config.roomStates[roomName] = newState;
+        }
+        
+        updateConnectionStatus(true);
+        showToast(`${roomName.replace('-', ' ')} light ${newState ? 'turned ON' : 'turned OFF'}`);
+      } catch (error) {
+        console.error('Error toggling room:', error);
+        
+        // Revert UI if there was an error
+        updateRoomUI(roomName, currentState);
+        config.roomStates[roomName] = currentState;
+        
+        updateConnectionStatus(false);
+        showToast(`Failed to toggle ${roomName.replace('-', ' ')} light: ${error.message}`, true);
+      } finally {
+        // Mark as no longer processing
+        lamp.dataset.processing = 'false';
+      }
+    }
+
+    // Poll ESP32 for current state
+    async function pollESP32State() {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), config.connectionTimeout);
+        
+        const response = await fetch(`http://${config.espIP}/s`, {
+          signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
+        
+        if (!response.ok) {
+          throw new Error(`HTTP error: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        // Update states based on response
+        if (data && data.s && data.s.length >= 3) {
+          // For each LED state, update all rooms mapped to that LED
+          for (const [room, ledIdx] of Object.entries(config.roomToLed)) {
+            if (ledIdx < data.s.length) {
+              const isOn = data.s[ledIdx] === 1;
+              config.roomStates[room] = isOn;
+              updateRoomUI(room, isOn);
+            }
+          }
+        }
+        
+        updateConnectionStatus(true);
+      } catch (error) {
+        console.error('Error polling ESP32:', error);
+        updateConnectionStatus(false);
+      }
+    }
+
+    /**
+     * Initialization and Event Handlers
+     */
+    
+    // Initialize event listeners with debounce
+    function initEventListeners() {
+      // Apply debounced click handlers to all lamps
+      elements.lamps.forEach(lamp => {
+        const roomName = lamp.getAttribute('data-lamp');
+        
+        // Add data attribute to track processing state
+        lamp.dataset.processing = 'false';
+        
+        // Create a debounced toggle function for this lamp
+        const debouncedToggle = debounce(() => {
+          if (lamp.dataset.processing !== 'true') {
+            toggleRoom(roomName);
+          }
+        }, config.debounceDelay);
+        
+        lamp.addEventListener('click', debouncedToggle);
+      });
+    }
+
+    // Initialize the application
+    function init() {
+      console.log('Initializing Smart House Control Panel...');
+      initEventListeners();
+      
+      // Initial poll
+      pollESP32State();
+      
+      // Set up polling interval
+      setInterval(pollESP32State, config.pollInterval);
+    }
+
+    // Start the app when DOM is loaded
+    document.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>
