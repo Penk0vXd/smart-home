@@ -1,51 +1,66 @@
 #include <WiFi.h>
-#include <WebServer.h>
-#include <DHT.h>
 #include <PubSubClient.h>
+#include <DHT.h>
 #include <WiFiClientSecure.h>
-#include <SPIFFS.h>
-#include <ArduinoJson.h>  // Add JSON support
+#include <ArduinoJson.h>
+#include <time.h>
 
-// LED Pins
-#define LED1_PIN 12
-#define LED2_PIN 13
-#define LED3_PIN 14
+// LED Pins - 4 Smart Lights
+#define LED1_PIN 12     // LED 1 - Living Room
+#define LED2_PIN 13     // LED 2 - Kitchen  
+#define LED3_PIN 14     // LED 3 - Bedroom
+#define LED4_PIN 27     // LED 4 - Bathroom
 
-#define DHTPIN 4     // DHT22 data pin
+// Sensor Pins
+#define DHTPIN 4        // DHT22 temperature/humidity sensor data pin
 #define DHTTYPE DHT22   // DHT 22 sensor type
+#define RAIN_SENSOR_PIN A0  // Analog pin for rain sensor (KY-018, YL-83) - GPIO36
+#define RAIN_THRESHOLD 500  // Threshold value for rain detection (adjust based on sensor)
 
-// Buzzer pin - using a single 3-pin active buzzer module
-#define BUZZER_PIN 21  // Active buzzer module on pin 21
-#define BUTTON_PIN 5   // Physical button pin
+// Control Pins
+#define BUZZER_PIN 21   // Active buzzer module - Security alarm
+#define BUTTON_PIN 5    // Physical push button - Manual buzzer control
 
 // WiFi credentials
 const char* ssid = "MIRKO";
-const char* password = "12345678 ";
+const char* password = "12345678";
 
-// MQTT настройки
+// NTP Configuration
+const char* ntpServer = "pool.ntp.org";
+const long gmtOffset_sec = 0;     // GMT offset in seconds
+const int daylightOffset_sec = 0; // Daylight saving time offset in seconds
+
+// MQTT settings
 const char* mqtt_server = "7fad8ef106584fd6951e4a14e11fc5ea.s1.eu.hivemq.cloud";
 const int   mqtt_port   = 8883;
 const char* mqtt_user   = "PenkovXD_19";
 const char* mqtt_pass   = "FYK_hxf2dct.emu@afc";
 
-// MQTT topics
+// MQTT topics - 4 Lights
 const char* topic_light1 = "home/lights/1";
 const char* topic_light2 = "home/lights/2";
 const char* topic_light3 = "home/lights/3";
+const char* topic_light4 = "home/lights/4";
 const char* topic_light1_status = "home/lights/1/status";
 const char* topic_light2_status = "home/lights/2/status";
 const char* topic_light3_status = "home/lights/3/status";
+const char* topic_light4_status = "home/lights/4/status";
 const char* topic_temperature = "home/sensor/temperature";
 const char* topic_humidity = "home/sensor/humidity";
 const char* topic_buzzer_command = "home/buzzer/command";
 const char* topic_buzzer_status = "home/buzzer/status";
+const char* topic_rain_sensor = "home/sensors/rain";
+const char* topic_system_status = "home/system/status";
 
-// MQTT publish interval
+// MQTT publish intervals
 unsigned long lastMqttPublish = 0;
-const long mqttPublishInterval = 5000; // Publish MQTT data every 5 seconds
+const long mqttPublishInterval = 5000; // Publish sensor data every 5 seconds
+unsigned long lastRainPublish = 0;
+const long rainPublishInterval = 10000; // Publish rain data every 10 seconds
+unsigned long lastStatusPublish = 0;
+const long statusPublishInterval = 30000; // Publish system status every 30 seconds
 
 // SSL Certificate for HiveMQ Cloud
-// DigiCert Global Root CA
 const char* root_ca = \
 "-----BEGIN CERTIFICATE-----\n" \
 "MIIDrzCCApegAwIBAgIQCDvgVpBCRrGhdWrJWZHHSjANBgkqhkiG9w0BAQUFADBh\n" \
@@ -70,10 +85,12 @@ const char* root_ca = \
 "CAUw7C29C79Fv1C5qfPrmAESrciIxpg0X40KPMbp1ZWVbd4=\n" \
 "-----END CERTIFICATE-----\n";
 
-// LED states - exactly 3 LEDs
-int ledStates[3] = {0, 0, 0};  // LED states for the 3 LEDs
+// System variables
+int ledStates[4] = {0, 0, 0, 0};  // LED states for the 4 LEDs
 float temperature = 0;
 float humidity = 0;
+int rainSensorValue = 0;
+bool isRaining = false;
 unsigned long lastDHTReadTime = 0;
 const long dhtReadInterval = 2000; // Read DHT every 2 seconds
 bool dhtInitialized = false;
@@ -81,19 +98,13 @@ int dhtRetryCount = 0;
 const int maxDhtRetries = 5;
 
 // Buzzer variables
-bool buzzerActive = false;  // Make sure this is initialized to false
+bool buzzerActive = false;
 unsigned long buzzerLastChange = 0;
-unsigned long buzzerToneChange = 0;
-unsigned long buzzerHighDuration = 300;
-unsigned long buzzerLowDuration = 200;
-int buzzerState = 0; // 0 = off, 1 = high tone, 2 = low tone
-int buzzerToneState = LOW; // Current state of the buzzer pin (HIGH or LOW)
-int buzzerHighFreq = 1000;
-int buzzerLowFreq = 600;
-int currentFreq = 0;
+int buzzerState = 0; // 0 = off, 1 = on
+int buzzerToneState = LOW;
 
 // Button debounce variables
-bool lastButtonState = HIGH;  // Assuming pull-up resistor
+bool lastButtonState = HIGH;
 bool currentButtonState = HIGH;
 unsigned long lastDebounceTime = 0;
 unsigned long debounceDelay = 50;
@@ -103,337 +114,32 @@ bool mqttConnected = false;
 unsigned long lastMqttConnectionAttempt = 0;
 const long mqttReconnectInterval = 5000; // Try to reconnect every 5 seconds
 
-WiFiClientSecure  wifiClient;
-PubSubClient      mqttClient(wifiClient);
-WebServer server(80);
+WiFiClientSecure wifiClient;
+PubSubClient mqttClient(wifiClient);
 DHT dht(DHTPIN, DHTTYPE);
 
-const char MAIN_page[] PROGMEM = R"rawliteral(
-<!DOCTYPE html><html>
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Smart Home</title>
-  <style>
-    *{margin:0;padding:0;box-sizing:border-box;transition:all 0.3s}
-    body{
-      background:linear-gradient(135deg, #19115d, #3B82F6, #4a2e93);
-      background-size:400% 400%;
-      animation:gradient 15s ease infinite;
-      color:#fff;
-      font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
-      min-height:100vh;
-      padding:20px;
-      display:flex;
-      flex-direction:column;
-      align-items:center;
-      justify-content:center
-    }
-    @keyframes gradient{
-      0%{background-position:0% 50%}
-      50%{background-position:100% 50%}
-      100%{background-position:0% 50%}
-    }
-    .container{
-      width:100%;
-      max-width:600px;
-      background:rgba(255,255,255,0.1);
-      backdrop-filter:blur(10px);
-      border-radius:20px;
-      padding:30px;
-      box-shadow:0 8px 32px rgba(0,0,0,0.2)
-    }
-    h1{
-      margin:0 0 30px;
-      text-align:center;
-      font-size:2rem;
-      font-weight:700;
-      letter-spacing:1px;
-      text-shadow:0 2px 5px rgba(0,0,0,0.3)
-    }
-    .grid{
-      display:grid;
-      grid-template-columns:repeat(auto-fit,minmax(130px,1fr));
-      gap:20px;
-      margin-bottom:20px
-    }
-    .btn{
-      position:relative;
-      border:none;
-      background:rgba(255,255,255,0.15);
-      color:#fff;
-      padding:20px 10px;
-      border-radius:16px;
-      display:flex;
-      flex-direction:column;
-      align-items:center;
-      cursor:pointer;
-      overflow:hidden;
-      box-shadow:0 4px 12px rgba(0,0,0,0.1)
-    }
-    .btn:hover{transform:translateY(-3px)}
-    .btn.on{
-      background:rgba(73,93,255,0.4);
-      box-shadow:0 6px 20px rgba(59,130,246,0.4)
-    }
-    .indicator{
-      width:40px;
-      height:40px;
-      border-radius:50%;
-      margin-bottom:15px;
-      background:#ffffff20;
-      border:2px solid rgba(255,255,255,0.3)
-    }
-    .btn.on .indicator{
-      background:#fff;
-      box-shadow:0 0 15px #fff,0 0 30px rgba(59,130,246,0.7)
-    }
-    .btn-name{font-weight:500;font-size:1rem}
-    .status{
-      position:absolute;
-      top:10px;
-      right:10px;
-      font-size:0.7rem;
-      font-weight:500;
-      opacity:0.7
-    }
-    .sensor-card{
-      background:rgba(255,255,255,0.15);
-      border-radius:16px;
-      padding:20px;
-      margin-bottom:20px;
-      box-shadow:0 4px 12px rgba(0,0,0,0.1);
-      text-align:center;
-    }
-    .sensor-title{
-      font-size:1.2rem;
-      margin-bottom:15px;
-      font-weight:600;
-    }
-    .sensor-data{
-      display:flex;
-      justify-content:space-around;
-    }
-    .sensor-value{
-      display:flex;
-      flex-direction:column;
-      align-items:center;
-    }
-    .value{
-      font-size:1.8rem;
-      font-weight:700;
-      margin-bottom:5px;
-    }
-    .label{
-      font-size:0.9rem;
-      opacity:0.8;
-    }
-    .footer{
-      margin-top:20px;
-      text-align:center;
-      font-size:0.8rem;
-      opacity:0.7
-    }
-    @media(max-width:500px){
-      .container{padding:20px 15px}
-      h1{font-size:1.5rem;margin-bottom:20px}
-      .grid{gap:12px}
-      .btn{padding:15px 10px}
-      .indicator{width:30px;height:30px;margin-bottom:10px}
-    }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <h1>Smart Home Lighting</h1>
-    <div class="sensor-card">
-      <div class="sensor-title">DHT22 Sensor</div>
-      <div class="sensor-data">
-        <div class="sensor-value">
-          <div class="value" id="temp">--&#176;C</div>
-          <div class="label">Temperature</div>
-        </div>
-        <div class="sensor-value">
-          <div class="value" id="hum">--%</div>
-          <div class="label">Humidity</div>
-        </div>
-      </div>
-    </div>
-    <div class="grid">
-      <button class="btn" id="l0" onclick="t(0)">
-        <div class="indicator"></div>
-        <span class="btn-name">LED 1</span>
-        <span class="status">OFF</span>
-      </button>
-      <button class="btn" id="l1" onclick="t(1)">
-        <div class="indicator"></div>
-        <span class="btn-name">LED 2</span>
-        <span class="status">OFF</span>
-      </button>
-      <button class="btn" id="l2" onclick="t(2)">
-        <div class="indicator"></div>
-        <span class="btn-name">LED 3</span>
-        <span class="status">OFF</span>
-      </button>
-    </div>
-    <div class="footer">Home Automation System</div>
-  </div>
-  <script>
-    let s=[0,0,0];  // Using numeric values (0/1) for exactly 3 LEDs
-    let temp = 0;
-    let hum = 0;
-    
-    function u(){
-      for(let i=0;i<3;i++){  // Loop through exactly 3 LEDs
-        const btn=document.getElementById('l'+i);
-        btn.classList[s[i]?'add':'remove']('on');
-        btn.querySelector('.status').textContent=s[i]?'ON':'OFF';
-      }
-      
-      // Format temperature and humidity with one decimal place
-      const tempFormatted = (temp === null || isNaN(temp)) ? "--" : parseFloat(temp).toFixed(1);
-      const humFormatted = (hum === null || isNaN(hum)) ? "--" : parseFloat(hum).toFixed(1);
-      
-      // Use String.fromCharCode for degree symbol in JavaScript
-      document.getElementById('temp').textContent = tempFormatted + String.fromCharCode(176) + 'C';
-      document.getElementById('hum').textContent = humFormatted + '%';
-    }
-    
-    function t(i){
-      fetch('/t?l='+i,{method:'POST'})
-        .then(r=>r.json())
-        .then(d=>{
-          s=d.s;
-          temp=d.temp;
-          hum=d.hum;
-          u();
-        })
-        .catch(e=>console.error(e));
-    }
-    
-    function getSensorData() {
-      fetch('/sensor')
-        .then(r=>r.json())
-        .then(d=>{
-          temp=d.temp;
-          hum=d.hum;
-          u();
-        })
-        .catch(e=>console.error(e));
-    }
-    
-    // Initial state
-    fetch('/s')
-      .then(r=>r.json())
-      .then(d=>{
-        s=d.s;
-        temp=d.temp;
-        hum=d.hum;
-        u();
-      })
-      .catch(e=>console.error(e));
-    
-    // Update sensor data every 3 seconds
-    setInterval(getSensorData, 3000);
-  </script>
-</body>
-</html>
-)rawliteral";
-
 void setLEDs() {
-  // Using direct pin values based on ledStates
-  digitalWrite(LED1_PIN, ledStates[0]);
-  digitalWrite(LED2_PIN, ledStates[1]);
-  digitalWrite(LED3_PIN, ledStates[2]);
+  digitalWrite(LED1_PIN, ledStates[0]);  // GPIO12
+  digitalWrite(LED2_PIN, ledStates[1]);  // GPIO13
+  digitalWrite(LED3_PIN, ledStates[2]);  // GPIO14
+  digitalWrite(LED4_PIN, ledStates[3]);  // GPIO27
   
-  // Debug output
-  Serial.print("Setting LEDs: ");
+  Serial.print("LEDs set - GPIO12:");
   Serial.print(ledStates[0]);
-  Serial.print(", ");
+  Serial.print(", GPIO13:");
   Serial.print(ledStates[1]);
-  Serial.print(", ");
+  Serial.print(", GPIO14:");
   Serial.print(ledStates[2]);
-}
-
-void handleRoot() {
-  // Serve the index.html file from SPIFFS if available
-  if (SPIFFS.exists("/index.html")) {
-    File file = SPIFFS.open("/index.html", "r");
-    server.streamFile(file, "text/html");
-    file.close();
-  } else {
-    // Fallback to the embedded HTML
-    server.send_P(200, "text/html", MAIN_page);
-  }
-}
-
-void handleToggle() {
-  if (server.hasArg("l")) {
-    int idx = server.arg("l").toInt();
-    if (idx >= 0 && idx < 3) {  // Only allow indices 0, 1, 2
-      ledStates[idx] = !ledStates[idx];  // Toggle between 0 and 1
-      setLEDs();
-      
-      // Debug output
-      Serial.print("Toggled LED ");
-      Serial.print(idx);
-      Serial.print(" to ");
-      Serial.println(ledStates[idx]);
-      
-      // Publish the change via MQTT so other interfaces stay in sync
-      if (mqttClient.connected()) {
-        const char* topic;
-        switch (idx) {
-          case 0: topic = topic_light1; break;
-          case 1: topic = topic_light2; break;
-          case 2: topic = topic_light3; break;
-          default: return;
-        }
-        const char* status = ledStates[idx] ? "ON" : "OFF";
-        mqttClient.publish(topic, status, true);
-        
-        // Also publish to status topic
-        publishLedStatus(idx);
-      }
-    }
-  }
-  
-  // Return numeric values in JSON
-  String json = "{\"s\":[" + String(ledStates[0]) + "," + String(ledStates[1]) + "," 
-              + String(ledStates[2]) + "],"
-              + "\"temp\":" + String(temperature, 1) + ","
-              + "\"hum\":" + String(humidity, 1) + "}";
-  
-  server.send(200, "application/json", json);
-}
-
-void handleStates() {
-  // Return numeric values in JSON
-  String json = "{\"s\":[" + String(ledStates[0]) + "," + String(ledStates[1]) + "," 
-              + String(ledStates[2]) + "],"
-              + "\"temp\":" + String(temperature, 1) + ","
-              + "\"hum\":" + String(humidity, 1) + "}";
-  
-  // Add CORS headers
-  server.sendHeader("Access-Control-Allow-Origin", "*");
-  server.send(200, "application/json", json);
-}
-
-void handleSensorData() {
-  String json = "{\"temp\":" + String(temperature, 1) + ","
-              + "\"hum\":" + String(humidity, 1) + "}";
-  
-  // Add CORS headers
-  server.sendHeader("Access-Control-Allow-Origin", "*");
-  server.send(200, "application/json", json);
+  Serial.print(", GPIO27:");
+  Serial.print(ledStates[3]);
+  Serial.println();
 }
 
 bool initDHT() {
   if (!dhtInitialized) {
     dht.begin();
-    delay(1000); // Give the sensor time to stabilize
+    delay(1000);
     
-    // Try to read from the sensor to verify it's working
     float h = dht.readHumidity();
     float t = dht.readTemperature();
     
@@ -451,8 +157,7 @@ bool initDHT() {
         Serial.println("Max DHT22 initialization retries reached. Using default values.");
         return false;
       }
-      
-      delay(1000); // Wait before trying again
+      delay(1000);
       return false;
     }
   }
@@ -460,43 +165,59 @@ bool initDHT() {
 }
 
 void readDHTSensor() {
-  // Ensure DHT is initialized
   if (!dhtInitialized && !initDHT()) {
     Serial.println("DHT sensor not initialized, using default values");
     return;
   }
   
-  // Reading temperature or humidity takes about 250 milliseconds
   float newHumidity = dht.readHumidity();
   float newTemperature = dht.readTemperature();
   
-  // Check if any reads failed and keep previous values
   if (isnan(newHumidity) || isnan(newTemperature)) {
     Serial.println("Failed to read from DHT sensor! Retaining previous values");
     return;
   }
-
   
-  // Update values
   humidity = newHumidity;
   temperature = newTemperature;
 }
 
-// Set buzzer state with forced setting to ensure state change
+void readRainSensor() {
+  // Read multiple times and average for stability
+  int readings = 0;
+  for (int i = 0; i < 5; i++) {
+    readings += analogRead(RAIN_SENSOR_PIN);
+    delay(10);
+  }
+  rainSensorValue = readings / 5;
+  
+  isRaining = (rainSensorValue < RAIN_THRESHOLD);
+  
+  Serial.print("Rain sensor (GPIO36/A0) raw value: ");
+  Serial.print(rainSensorValue);
+  Serial.print(" (threshold: ");
+  Serial.print(RAIN_THRESHOLD);
+  Serial.print(") - Status: ");
+  Serial.println(isRaining ? "RAINING" : "DRY");
+  
+  // Additional debug for troubleshooting
+  if (rainSensorValue == 0 || rainSensorValue == 4095) {
+    Serial.println("WARNING: Rain sensor may not be connected properly!");
+    Serial.println("Expected range: 0-4095, got extreme value");
+  }
+}
+
 void setBuzzer(int state) {
-  // Only print debug message if state is actually changing
   if (buzzerToneState != state) {
     buzzerToneState = state;
     digitalWrite(BUZZER_PIN, state);
     
-    // Only print messages when buzzer is being turned on or off explicitly by user actions
     if (state == HIGH && buzzerActive) {
       Serial.println("Buzzer turned ON");
     } else if (state == LOW && !buzzerActive) {
       Serial.println("Buzzer turned OFF");
     }
   } else {
-    // Still set the pin but don't print anything
     digitalWrite(BUZZER_PIN, state);
   }
 }
@@ -506,24 +227,18 @@ void toggleBuzzer() {
   
   if (buzzerActive) {
     Serial.println("Alarm activated");
-    // Turn on buzzer immediately
     setBuzzer(HIGH);
     buzzerState = 1;
-    currentFreq = buzzerHighFreq;
   } else {
     Serial.println("Alarm deactivated");
-    // Turn off buzzer
     setBuzzer(LOW);
     buzzerState = 0;
     buzzerToneState = LOW;
   }
   
   buzzerLastChange = millis();
-  buzzerToneChange = millis();
   
-  // Publish MQTT status if connected
   if (mqttClient.connected()) {
-    // Publish to both command and status topics to keep all interfaces in sync
     const char* status = buzzerActive ? "ON" : "OFF";
     mqttClient.publish(topic_buzzer_command, status, true);
     publishBuzzerStatus();
@@ -531,28 +246,18 @@ void toggleBuzzer() {
 }
 
 void updateBuzzer() {
-  // Force buzzer off if not active, regardless of current pin state
   if (!buzzerActive) {
-    // Don't spam serial monitor, just quietly ensure buzzer is off
     digitalWrite(BUZZER_PIN, LOW);
     buzzerToneState = LOW;
     return;
   }
   
   unsigned long currentMillis = millis();
-  
-  // For an active buzzer, use a simple on/off pattern:
-  // 1 second on, 0.5 second off - this is more noticeable than faster patterns
-  unsigned long period = 1500; // Total cycle length in milliseconds
-  unsigned long onDuration = 1000; // Time buzzer is on in milliseconds
-  
-  // Calculate position in the cycle
+  unsigned long period = 1500;
+  unsigned long onDuration = 1000;
   unsigned long cyclePosition = currentMillis % period;
-  
-  // Determine if the buzzer should be on or off based on cycle position
   bool shouldBeOn = (cyclePosition < onDuration);
   
-  // Set the buzzer state without debug messages for regular pattern updates
   if (buzzerToneState != (shouldBeOn ? HIGH : LOW)) {
     buzzerToneState = shouldBeOn ? HIGH : LOW;
     digitalWrite(BUZZER_PIN, buzzerToneState);
@@ -560,21 +265,16 @@ void updateBuzzer() {
 }
 
 void checkButton() {
-  // Read the button state
   int reading = digitalRead(BUTTON_PIN);
   
-  // Check if the button state has changed
   if (reading != lastButtonState) {
     lastDebounceTime = millis();
   }
   
-  // If the button state has been stable for the debounce delay
   if ((millis() - lastDebounceTime) > debounceDelay) {
-    // If the button state has changed
     if (reading != currentButtonState) {
       currentButtonState = reading;
       
-      // If the button is pressed (LOW with pull-up resistor)
       if (currentButtonState == LOW) {
         Serial.println("Button pressed - toggling buzzer");
         toggleBuzzer();
@@ -582,35 +282,39 @@ void checkButton() {
     }
   }
   
-  // Save the current reading for the next comparison
   lastButtonState = reading;
 }
 
-// MQTT callback function for handling incoming messages
 void mqttCallback(char* topic, byte* payload, unsigned int length) {
   Serial.print("Message arrived [");
   Serial.print(topic);
   Serial.print("] ");
   
-  // Convert payload to string for easier handling
   String message;
   for (int i = 0; i < length; i++) {
     message += (char)payload[i];
   }
   Serial.println(message);
   
-  // Handle light commands
   if (strcmp(topic, topic_light1) == 0) {
+    Serial.println("Processing Light 1 (GPIO12) command");
     ledStates[0] = (message == "ON") ? 1 : 0;
     publishLedStatus(0);
   } 
   else if (strcmp(topic, topic_light2) == 0) {
+    Serial.println("Processing Light 2 (GPIO13) command");
     ledStates[1] = (message == "ON") ? 1 : 0;
     publishLedStatus(1);
   }
   else if (strcmp(topic, topic_light3) == 0) {
+    Serial.println("Processing Light 3 (GPIO14) command");
     ledStates[2] = (message == "ON") ? 1 : 0;
     publishLedStatus(2);
+  }
+  else if (strcmp(topic, topic_light4) == 0) {
+    Serial.println("Processing Light 4 (GPIO27) command");
+    ledStates[3] = (message == "ON") ? 1 : 0;
+    publishLedStatus(3);
   }
   else if (strcmp(topic, topic_buzzer_command) == 0) {
     bool previousState = buzzerActive;
@@ -622,29 +326,44 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     if (buzzerActive != previousState) {
       if (buzzerActive) {
         Serial.println("Alarm activated via MQTT");
-        // Start with high tone and turn on immediately
         setBuzzer(HIGH);
         buzzerState = 1;
-        currentFreq = buzzerHighFreq;
       } else {
         Serial.println("Alarm deactivated via MQTT");
-        // Turn off buzzer
         setBuzzer(LOW);
         buzzerState = 0;
         buzzerToneState = LOW;
       }
       buzzerLastChange = millis();
-      buzzerToneChange = millis();
-      
-      // Publish buzzer status
       publishBuzzerStatus();
     }
+  }
+  else if (strcmp(topic, "home/sensors/rain/test") == 0) {
+    Serial.println("Rain sensor test command received!");
+    if (message == "RAIN") {
+      Serial.println("Simulating RAIN detected");
+      rainSensorValue = 200;  // Force rain detection
+      isRaining = true;
+      publishRainData();
+    } else if (message == "DRY") {
+      Serial.println("Simulating DRY conditions");
+      rainSensorValue = 800;  // Force dry detection
+      isRaining = false;
+      publishRainData();
+    } else if (message == "READ") {
+      Serial.println("Forcing rain sensor reading...");
+      readRainSensor();
+      publishRainData();
+    }
+  }
+  else {
+    Serial.print("Unknown topic received: ");
+    Serial.println(topic);
   }
   
   setLEDs();
 }
 
-// Use MAC address for unique client ID
 String getUniqueClientId() {
   uint8_t mac[6];
   WiFi.macAddress(mac);
@@ -655,7 +374,6 @@ String getUniqueClientId() {
   return clientId;
 }
 
-// Connect to MQTT broker
 bool connectMQTT() {
   if (mqttClient.connected()) {
     return true;
@@ -663,24 +381,23 @@ bool connectMQTT() {
   
   Serial.println("Connecting to MQTT broker...");
   
-  // Generate unique client ID based on MAC address
   String clientId = getUniqueClientId();
   Serial.print("Using client ID: ");
   Serial.println(clientId);
   
-  // Connect with credentials
   if (mqttClient.connect(clientId.c_str(), mqtt_user, mqtt_pass)) {
     Serial.println("Connected to MQTT broker");
     
-    // Subscribe to topics - exactly 3 LEDs and buzzer
     mqttClient.subscribe(topic_light1);
     mqttClient.subscribe(topic_light2);
     mqttClient.subscribe(topic_light3);
+    mqttClient.subscribe(topic_light4);
     mqttClient.subscribe(topic_buzzer_command);
+    mqttClient.subscribe("home/sensors/rain/test");  // Rain sensor test commands
     
-    // Publish initial states
+    Serial.println("Subscribed to all MQTT topics including rain test commands");
+    
     publishAllStatus();
-    
     return true;
   } else {
     Serial.print("MQTT connection failed, rc=");
@@ -701,27 +418,25 @@ bool connectMQTT() {
   }
 }
 
-// Publish LED status
 void publishLedStatus(int ledIndex) {
   const char* topic;
   switch (ledIndex) {
     case 0: topic = topic_light1_status; break;
     case 1: topic = topic_light2_status; break;
     case 2: topic = topic_light3_status; break;
+    case 3: topic = topic_light4_status; break;
     default: return;
   }
   
   const char* status = ledStates[ledIndex] ? "ON" : "OFF";
-  mqttClient.publish(topic, status, true); // retained message
+  mqttClient.publish(topic, status, true);
 }
 
-// Publish buzzer status
 void publishBuzzerStatus() {
   const char* status = buzzerActive ? "ON" : "OFF";
-  mqttClient.publish(topic_buzzer_status, status, true); // retained message
+  mqttClient.publish(topic_buzzer_status, status, true);
 }
 
-// Publish temperature and humidity values
 void publishSensorData() {
   char tempStr[10];
   char humStr[10];
@@ -737,135 +452,132 @@ void publishSensorData() {
   }
 }
 
-// Publish all status (for initial connection and reconnects)
+void publishRainData() {
+  // Get current timestamp
+  time_t now;
+  time(&now);
+  
+  // Create JSON payload
+  DynamicJsonDocument doc(128);
+  doc["raining"] = isRaining;
+  doc["sensor_value"] = rainSensorValue;
+  doc["timestamp"] = now;
+  
+  String payload;
+  serializeJson(doc, payload);
+  
+  Serial.print("Attempting to publish rain data to topic '");
+  Serial.print(topic_rain_sensor);
+  Serial.print("': ");
+  Serial.println(payload);
+  
+  bool success = mqttClient.publish(topic_rain_sensor, payload.c_str(), true);
+  
+  if (success) {
+    Serial.println("✓ Rain data published successfully");
+  } else {
+    Serial.println("✗ Failed to publish rain data to MQTT");
+    Serial.print("MQTT Client State: ");
+    Serial.println(mqttClient.state());
+    Serial.print("MQTT Connected: ");
+    Serial.println(mqttClient.connected() ? "Yes" : "No");
+  }
+}
+
+void publishSystemStatus() {
+  // Get system information
+  long rssi = WiFi.RSSI();
+  uint32_t freeHeap = ESP.getFreeHeap();
+  uint32_t heapSize = ESP.getHeapSize();
+  float heapUsage = ((float)(heapSize - freeHeap) / heapSize) * 100;
+  
+  // Create JSON payload
+  DynamicJsonDocument doc(256);
+  doc["wifi_rssi"] = rssi;
+  doc["free_heap"] = freeHeap;
+  doc["heap_usage_percent"] = heapUsage;
+  doc["mqtt_connected"] = mqttClient.connected();
+  doc["uptime_ms"] = millis();
+  
+  String payload;
+  serializeJson(doc, payload);
+  
+  bool success = mqttClient.publish(topic_system_status, payload.c_str(), true);
+  
+  if (success) {
+    Serial.print("System status published: ");
+    Serial.println(payload);
+  } else {
+    Serial.println("Failed to publish system status to MQTT");
+  }
+  
+  // Also print to serial for debugging
+  Serial.print("WiFi RSSI: ");
+  Serial.print(rssi);
+  Serial.print(" dBm, Free Heap: ");
+  Serial.print(freeHeap);
+  Serial.print(" bytes (");
+  Serial.print(heapUsage, 1);
+  Serial.print("% used), MQTT: ");
+  Serial.println(mqttClient.connected() ? "Connected" : "Disconnected");
+}
+
 void publishAllStatus() {
-  // Publish all LED statuses - exactly 3 LEDs
-  for (int i = 0; i < 3; i++) {
+  for (int i = 0; i < 4; i++) {
     publishLedStatus(i);
   }
-  
-  // Publish buzzer status
   publishBuzzerStatus();
-  
-  // Publish sensor data
   publishSensorData();
+  publishRainData();
+  publishSystemStatus();
 }
 
-// Handle updates from external web pages
-void handleExternalUpdate() {
-  String message = "Update failed";
-  int statusCode = 400;
+void initTimeSync() {
+  Serial.println("Initializing NTP time sync...");
+  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
   
-  // Check if we have the right parameters
-  if (server.hasArg("plain")) {
-    String body = server.arg("plain");
-    Serial.println("Received update: " + body);
-    
-    // Try to parse JSON
-    DynamicJsonDocument doc(256);
-    DeserializationError error = deserializeJson(doc, body);
-    
-    if (!error) {
-      // Check if it's a light update
-      if (doc.containsKey("light") && doc.containsKey("state")) {
-        int lightIndex = doc["light"].as<int>();
-        bool state = doc["state"].as<bool>();
-        
-        if (lightIndex >= 0 && lightIndex < 3) {
-          ledStates[lightIndex] = state ? 1 : 0;
-          setLEDs();
-          
-          // Publish via MQTT to keep everything in sync
-          if (mqttClient.connected()) {
-            const char* topic;
-            switch (lightIndex) {
-              case 0: topic = topic_light1; break;
-              case 1: topic = topic_light2; break;
-              case 2: topic = topic_light3; break;
-              default: break;
-            }
-            const char* status = ledStates[lightIndex] ? "ON" : "OFF";
-            mqttClient.publish(topic, status, true);
-            publishLedStatus(lightIndex);
-          }
-          
-          message = "Light " + String(lightIndex) + " set to " + String(ledStates[lightIndex]);
-          statusCode = 200;
-        }
-      }
-      // Check if it's a buzzer update
-      else if (doc.containsKey("buzzer")) {
-        bool state = doc["buzzer"].as<bool>();
-        
-        Serial.print("Buzzer command received via HTTP: ");
-        Serial.println(state ? "ON" : "OFF");
-        
-        // Only toggle if current state is different
-        if (buzzerActive != state) {
-          buzzerActive = state;
-          
-          if (buzzerActive) {
-            // Start buzzer
-            setBuzzer(HIGH);
-            buzzerState = 1;
-            currentFreq = buzzerHighFreq;
-          } else {
-            // Stop buzzer
-            setBuzzer(LOW);
-            buzzerState = 0;
-            buzzerToneState = LOW;
-          }
-          
-          buzzerLastChange = millis();
-          buzzerToneChange = millis();
-          
-          // Publish via MQTT
-          if (mqttClient.connected()) {
-            const char* status = buzzerActive ? "ON" : "OFF";
-            mqttClient.publish(topic_buzzer_command, status, true);
-            publishBuzzerStatus();
-          }
-        }
-        
-        message = "Buzzer set to " + String(buzzerActive ? "ON" : "OFF");
-        statusCode = 200;
-      }
-    } else {
-      message = "Invalid JSON: " + String(error.c_str());
-    }
+  // Wait for time to be set
+  int attempts = 0;
+  while (!time(nullptr) && attempts < 10) {
+    Serial.print(".");
+    delay(1000);
+    attempts++;
   }
   
-  // Return response with appropriate CORS headers
-  server.sendHeader("Access-Control-Allow-Origin", "*");
-  server.send(statusCode, "text/plain", message);
-}
-
-// Handle buzzer status request
-void handleBuzzerStatus() {
-  String json = "{\"active\":" + String(buzzerActive ? "true" : "false") + "}";
-  
-  // Add CORS headers
-  server.sendHeader("Access-Control-Allow-Origin", "*");
-  server.send(200, "application/json", json);
-  
-  Serial.print("Buzzer status requested. Current state: ");
-  Serial.println(buzzerActive ? "ON" : "OFF");
+  if (!time(nullptr)) {
+    Serial.println("\nFailed to initialize NTP time");
+  } else {
+    Serial.println("\nNTP time synchronized successfully");
+    time_t now = time(nullptr);
+    Serial.print("Current time: ");
+    Serial.println(ctime(&now));
+  }
 }
 
 void setup() {
   Serial.begin(115200);
   delay(10);
   
-  Serial.println("\n\n--- ESP32 Smart Home Lighting Starting ---");
+  Serial.println("\n\n--- ESP32 Smart Home MQTT Client Starting ---");
   
   // Initialize pin modes
-  pinMode(LED1_PIN, OUTPUT);
-  pinMode(LED2_PIN, OUTPUT);
-  pinMode(LED3_PIN, OUTPUT);
-  pinMode(BUZZER_PIN, OUTPUT);  // Single buzzer pin
-  pinMode(BUTTON_PIN, INPUT_PULLUP);
+  Serial.println("Setting up GPIO pins:");
+  pinMode(LED1_PIN, OUTPUT);      // LED 1 - Living Room (GPIO12)
+  Serial.println("✓ GPIO12 (LED1) set as OUTPUT");
+  pinMode(LED2_PIN, OUTPUT);      // LED 2 - Kitchen (GPIO13)
+  Serial.println("✓ GPIO13 (LED2) set as OUTPUT");
+  pinMode(LED3_PIN, OUTPUT);      // LED 3 - Bedroom (GPIO14)
+  Serial.println("✓ GPIO14 (LED3) set as OUTPUT");
+  pinMode(LED4_PIN, OUTPUT);      // LED 4 - Bathroom (GPIO27)
+  Serial.println("✓ GPIO27 (LED4) set as OUTPUT");
+  pinMode(BUZZER_PIN, OUTPUT);    // Buzzer - Security Alarm (GPIO21)
+  Serial.println("✓ GPIO21 (Buzzer) set as OUTPUT");
+  pinMode(BUTTON_PIN, INPUT_PULLUP);  // Button - Manual Control (GPIO5)
+  Serial.println("✓ GPIO5 (Button) set as INPUT_PULLUP");
+  // Rain sensor (GPIO36/A0) - No pinMode needed for analog pins
+  Serial.println("✓ GPIO36 (Rain Sensor) ready for analog reading");
   
-  // Initialize buzzer to OFF state - call twice to ensure it's off
+  // Initialize buzzer to OFF state
   digitalWrite(BUZZER_PIN, LOW);
   delay(50);
   digitalWrite(BUZZER_PIN, LOW);
@@ -878,13 +590,6 @@ void setup() {
   delay(300);
   digitalWrite(BUZZER_PIN, LOW);
   Serial.println("Buzzer test complete");
-  
-  // Initialize SPIFFS
-  if(!SPIFFS.begin(true)) {
-    Serial.println("SPIFFS initialization failed!");
-  } else {
-    Serial.println("SPIFFS initialized successfully");
-  }
   
   // Initialize DHT22
   initDHT();
@@ -904,47 +609,57 @@ void setup() {
     Serial.println("\nWiFi connected!");
     Serial.print("IP address: ");
     Serial.println(WiFi.localIP());
+    
+    // Initialize NTP time synchronization
+    initTimeSync();
   } else {
     Serial.println("\nWiFi connection failed!");
   }
   
   // Setup MQTT
-  wifiClient.setInsecure(); // Use setInsecure instead of certificates
+  wifiClient.setInsecure(); // Use setInsecure for simplified TLS
   mqttClient.setServer(mqtt_server, mqtt_port);
   mqttClient.setCallback(mqttCallback);
   
   // Try to connect to MQTT server
   connectMQTT();
   
-  // Setup web server routes
-  server.on("/", handleRoot);
-  server.on("/t", handleToggle);
-  server.on("/s", handleStates);
-  server.on("/sensor", handleSensorData);
-  server.on("/buzzer", handleBuzzerStatus);  // Add buzzer status endpoint
-  server.on("/update", HTTP_POST, handleExternalUpdate);
-  
-  // Enable CORS for cross-origin requests
-  server.enableCORS(true);
-  
-  // Start web server
-  server.begin();
-  Serial.println("HTTP server started");
-  
   // Set all LEDs to initial state
   setLEDs();
+  
+  // Initial sensor readings
+  readDHTSensor();
+  readRainSensor();
+  
+  // Rain sensor configuration info
+  Serial.println("\n=== RAIN SENSOR CONFIGURATION ===");
+  Serial.print("Pin: GPIO");
+  Serial.print(RAIN_SENSOR_PIN);
+  Serial.println(" (A0)");
+  Serial.print("Threshold: ");
+  Serial.print(RAIN_THRESHOLD);
+  Serial.println(" (below = RAIN, above = DRY)");
+  Serial.print("Initial reading: ");
+  Serial.println(rainSensorValue);
+  Serial.print("Initial status: ");
+  Serial.println(isRaining ? "RAINING" : "DRY");
+  Serial.println("Test commands available:");
+  Serial.println("- Publish 'RAIN' to 'home/sensors/rain/test' to simulate rain");
+  Serial.println("- Publish 'DRY' to 'home/sensors/rain/test' to simulate dry");
+  Serial.println("- Publish 'READ' to 'home/sensors/rain/test' to force reading");
+  Serial.println("==================================\n");
+  
+  Serial.println("Setup complete - entering main loop");
 }
 
 void loop() {
-  server.handleClient();
+  unsigned long currentMillis = millis();
   
   // Check WiFi connection
   if (WiFi.status() != WL_CONNECTED) {
-    // If WiFi disconnected, try to reconnect
     static unsigned long lastWiFiReconnectAttempt = 0;
-    unsigned long currentMillis = millis();
     
-    if (currentMillis - lastWiFiReconnectAttempt >= 30000) { // Try every 30 seconds
+    if (currentMillis - lastWiFiReconnectAttempt >= 30000) {
       Serial.println("WiFi disconnected. Attempting to reconnect...");
       lastWiFiReconnectAttempt = currentMillis;
       WiFi.reconnect();
@@ -952,8 +667,6 @@ void loop() {
   } else {
     // Handle MQTT connection and messages
     if (!mqttClient.connected()) {
-      // Try to reconnect periodically
-      unsigned long currentMillis = millis();
       if (currentMillis - lastMqttConnectionAttempt >= mqttReconnectInterval) {
         lastMqttConnectionAttempt = currentMillis;
         if (connectMQTT()) {
@@ -964,22 +677,38 @@ void loop() {
         }
       }
     } else {
-      // Process MQTT messages
       mqttClient.loop();
     }
   }
   
   // Read DHT sensor at intervals
-  unsigned long currentMillis = millis();
   if (currentMillis - lastDHTReadTime >= dhtReadInterval) {
     lastDHTReadTime = currentMillis;
     readDHTSensor();
   }
   
-  // Publish MQTT data periodically
+  // Read rain sensor and publish every 10 seconds
+  if (currentMillis - lastRainPublish >= rainPublishInterval) {
+    lastRainPublish = currentMillis;
+    readRainSensor();
+    
+    if (mqttClient.connected()) {
+      publishRainData();
+    } else {
+      Serial.println("Cannot publish rain data - MQTT not connected");
+    }
+  }
+  
+  // Publish sensor data periodically
   if (mqttClient.connected() && (currentMillis - lastMqttPublish >= mqttPublishInterval)) {
     lastMqttPublish = currentMillis;
     publishSensorData();
+  }
+  
+  // Publish system status periodically
+  if (mqttClient.connected() && (currentMillis - lastStatusPublish >= statusPublishInterval)) {
+    lastStatusPublish = currentMillis;
+    publishSystemStatus();
   }
   
   // Check button state
@@ -988,10 +717,9 @@ void loop() {
   // Update buzzer sound pattern
   updateBuzzer();
   
-  // Add additional safety check - if not supposed to be active, ensure it's off
+  // Safety check for buzzer
   if (!buzzerActive && digitalRead(BUZZER_PIN) == HIGH) {
     digitalWrite(BUZZER_PIN, LOW);
-    // Only print this message once in a while to avoid spamming
     static unsigned long lastSafetyMessage = 0;
     if (millis() - lastSafetyMessage > 5000) {
       Serial.println("Safety check: Turning off buzzer that should be inactive");

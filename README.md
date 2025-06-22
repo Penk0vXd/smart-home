@@ -1,138 +1,328 @@
-# ESP32 Smart Home System
+# Smart Home IoT Dashboard
 
-## ✅ Overview
+A modern, responsive web dashboard for IoT smart home systems with real-time MQTT integration. Built with vanilla HTML, CSS, and JavaScript featuring Apple-inspired design language.
 
-This project implements a complete smart home system using an ESP32 DevKit V1 board, allowing control of multiple devices through MQTT protocol using HiveMQ Cloud as the broker. The system provides:
+## ✨ Features
 
-- Secure connection to MQTT broker using TLS
-- Control of 3 LED lights via MQTT topics
-- Temperature and humidity monitoring with DHT22 sensor
-- Alarm system with a multi-tone buzzer that can be triggered via MQTT or physical button
-- Web interface for local control with real-time sensor readings
-- Automatic reconnection to WiFi and MQTT broker
+### 🎨 **Modern UI/UX**
+- Clean, minimalist Apple-style design
+- Smooth animations and transitions
+- Light/Dark mode toggle
+- Responsive layout (mobile, tablet, desktop)
+- Real-time data visualization
 
-## 🔌 Wiring Diagram
+### 🔌 **MQTT Integration**
+- WebSocket-based MQTT client using `mqtt.js`
+- Auto-reconnection with connection status indicators
+- Support for both secured (WSS) and unsecured (WS) connections
+- Retained message support for device states
 
+### 📊 **Real-time Monitoring**
+- **Temperature & Humidity** (DHT22 sensor)
+- **Rain Detection** with threshold-based status
+- **System Status** (WiFi signal, memory usage, uptime)
+- **Device Status** indicators with live updates
+
+### 🎛️ **Device Control**
+- **Smart Lighting** - Toggle 4 lights independently (Living Room, Kitchen, Bedroom, Bathroom)
+- **Security Alarm** - Control buzzer/alarm system
+- **Emergency Stop** - Turn off all devices instantly
+- Instant feedback with optimistic UI updates
+
+## 🚀 Quick Start
+
+### 1. Download Files
+```bash
+# Clone or download these files:
+- index.html
+- dashboard-config.js
+- README.md
 ```
-ESP32 DevKit V1     |     Components
------------------------------------------
-GPIO12 -------------- LED1 (+) → Resistor → GND
-GPIO13 -------------- LED2 (+) → Resistor → GND
-GPIO14 -------------- LED3 (+) → Resistor → GND
-GPIO4  -------------- DHT22 Data Pin (2nd pin)
-GPIO21 -------------- Buzzer1 (+) → GND
-GPIO22 -------------- Buzzer2 (+) → GND
-GPIO23 -------------- Buzzer3 (+) → GND
-GPIO25 -------------- Buzzer4 (+) → GND
-GPIO5  -------------- Push Button → GND
-3.3V   -------------- DHT22 VCC (1st pin)
-                       Push Button (w/ 10k pull-up resistor)
-GND    -------------- DHT22 GND (4th pin)
-                       LEDs, Buzzers, Button
+
+### 2. Configure MQTT Broker
+Edit `dashboard-config.js` to match your setup:
+
+```javascript
+const DASHBOARD_CONFIG = {
+    mqtt: {
+        host: 'your-broker.com',          // Your MQTT broker
+        port: 8000,                       // WebSocket port
+        protocol: 'ws',                   // 'ws' or 'wss'
+        // username: 'your-username',     // Optional
+        // password: 'your-password',     // Optional
+    }
+};
 ```
 
-### Component Requirements:
-- 1× ESP32 DevKit V1
-- 3× LEDs (any color)
-- 3× 220Ω Resistors (for LEDs)
-- 1× DHT22 Temperature & Humidity Sensor
-- 4× Buzzers (or 1 if space limited)
-- 1× Push Button
-- 1× 10kΩ Resistor (for button pull-up)
-- Breadboard and jumper wires
+### 3. Open in Browser
+Simply open `index.html` in any modern web browser. No web server required!
 
-## 📋 Arduino Code Explanation
+## 🔧 Configuration Options
 
-The code is structured into the following sections:
+### MQTT Broker Examples
 
-1. **Initialization and Configuration**
-   - Pin definitions and MQTT topics
-   - WiFi and MQTT broker settings
-   - Sensor and device state variables
+#### Local Mosquitto (Unsecured)
+```javascript
+mqtt: {
+    host: 'localhost',        // or your Pi's IP: '192.168.1.100'
+    port: 8000,
+    protocol: 'ws'
+}
+```
 
-2. **Web Server Implementation**
-   - Embedded HTML/CSS/JS for responsive web interface
-   - API endpoints for device control and sensor data
+#### HiveMQ Cloud (Secured)
+```javascript
+mqtt: {
+    host: 'your-instance.s1.eu.hivemq.cloud',
+    port: 8884,
+    protocol: 'wss',
+    username: 'your-username',
+    password: 'your-password'
+}
+```
 
-3. **MQTT Functionality**
-   - Secure TLS connection with `setInsecure()`
-   - Unique client ID based on ESP32 MAC address
-   - Topic subscription and message handling
-   - Status publishing for all devices
+#### Eclipse IoT (Public)
+```javascript
+mqtt: {
+    host: 'mqtt.eclipseprojects.io',
+    port: 80,
+    protocol: 'ws'
+}
+```
 
-4. **Sensor and Device Control**
-   - DHT22 temperature/humidity reading
-   - LED control via GPIO outputs
-   - Buzzer alarm pattern generation
-   - Button debounce handling
+### Custom Device Names
+```javascript
+ui: {
+    lightNames: [
+        'Living Room (GPIO12)',
+        'Kitchen (GPIO13)', 
+        'Bedroom (GPIO14)',
+        'Bathroom (GPIO27)'
+    ]
+}
+```
 
-5. **Robust Connection Management**
-   - WiFi reconnection logic
-   - MQTT broker reconnection handling
-   - Error detection and reporting
+### MQTT Topics
+The dashboard expects these default topics (configurable):
 
-## 🖥️ MQTT Topic Table
+```javascript
+topics: {
+    sensors: {
+        temperature: 'home/sensor/temperature',    // Float value in °C
+        humidity: 'home/sensor/humidity',          // Float value in %
+        rain: 'home/sensors/rain',                 // JSON: {"raining": bool, "sensor_value": int}
+        system: 'home/system/status'               // JSON with system info
+    },
+    controls: {
+        lights: 'home/lights/',                    // Sends "ON"/"OFF" to home/lights/1,2,3
+        buzzer: 'home/buzzer/command'              // Sends "ON"/"OFF"
+    }
+}
+```
 
-| Topic                    | Direction | Data Format | Purpose                           |
-|--------------------------|-----------|-------------|-----------------------------------|
-| home/lights/1            | Subscribe | "ON"/"OFF"  | Turn LED 1 on or off              |
-| home/lights/2            | Subscribe | "ON"/"OFF"  | Turn LED 2 on or off              |
-| home/lights/3            | Subscribe | "ON"/"OFF"  | Turn LED 3 on or off              |
-| home/lights/1/status     | Publish   | "ON"/"OFF"  | Current state of LED 1            |
-| home/lights/2/status     | Publish   | "ON"/"OFF"  | Current state of LED 2            |
-| home/lights/3/status     | Publish   | "ON"/"OFF"  | Current state of LED 3            |
-| home/sensor/temperature  | Publish   | Float (°C)  | Current temperature reading       |
-| home/sensor/humidity     | Publish   | Float (%)   | Current humidity reading          |
-| home/buzzer/command      | Subscribe | "ON"/"OFF"  | Activate/deactivate buzzer alarm  |
-| home/buzzer/status       | Publish   | "ON"/"OFF"  | Current state of buzzer alarm     |
+## 📱 Responsive Design
 
-## 🔧 Troubleshooting Tips
+### Desktop (1200px+)
+- 4-column grid layout
+- Large sensor cards
+- Side-by-side controls
 
-### Connection Issues
-1. **WiFi Connection Failures**
-   - Verify SSID and password are correct
-   - Ensure ESP32 is within range of WiFi router
-   - Check if router has too many connected devices
+### Tablet (768px - 1199px)
+- 2-column grid layout
+- Medium-sized cards
+- Touch-friendly controls
 
-2. **MQTT Connection Failures**
-   - Verify HiveMQ Cloud credentials (username/password)
-   - Check error code from `mqttClient.state()` for specific issues:
-     - `-4`: Connection timeout - Check network speed
-     - `-3`: Connection lost - Check network stability
-     - `-2`: Connect failed - Verify broker URL is correct
-     - `4`: Bad credentials - Check username/password
-     - `5`: Not authorized - Check permissions in HiveMQ dashboard
+### Mobile (< 768px)
+- Single column layout
+- Stacked navigation
+- Optimized for thumb navigation
 
-3. **SSL/TLS Problems**
-   - Using `setInsecure()` bypasses certificate verification, which may not work on all networks
-   - For higher security, use a proper CA certificate and `wifiClient.setCACert()`
+## 🎨 Theming
 
-### Hardware Issues
-1. **DHT22 Readings Failed**
-   - Check wiring connections (VCC, GND, Data)
-   - Ensure 3.3V power is stable
-   - Try a different DHT22 sensor if problems persist
+### Light Mode (Default)
+- White backgrounds
+- Apple-style shadows
+- Blue accent colors (#007AFF)
 
-2. **LEDs Not Working**
-   - Verify correct GPIO pins (12, 13, 14)
-   - Check LED polarity (longer leg is positive)
-   - Confirm resistors are connected properly
+### Dark Mode
+- Dark backgrounds (#000000, #1C1C1E)
+- Reduced contrast
+- Same accent colors
 
-3. **Buzzer Not Sounding**
-   - Check wiring connections for all buzzers
-   - Verify GPIO pins (21, 22, 23, 25)
-   - Test with direct HIGH/LOW signals to isolate issue
+Toggle between themes with the 🌙/☀️ button. Preference saved to localStorage.
 
-4. **Button Not Triggering**
-   - Verify pull-up resistor is connected
-   - Check GPIO pin (5) configuration
-   - Test button continuity with multimeter
+## 🔌 Compatible Devices
 
-### Software Troubleshooting
-1. Run serial monitor at 115200 baud to view debug messages
-2. Monitor MQTT messages using a client like MQTT Explorer
-3. Use ArduinoOTA or Web Server to update firmware remotely
-4. If ESP32 crashes, check for:
-   - Memory leaks in loops
-   - Stack overflow from recursive functions
-   - Power supply issues (use capacitor between VCC/GND) 
+### Tested With:
+- **ESP32** with Arduino IDE
+- **ESP8266** with Arduino IDE  
+- **Raspberry Pi** with Python/Node.js
+- **Arduino** with WiFi modules
+
+### Required Libraries (for Arduino/ESP32):
+```cpp
+#include <WiFi.h>
+#include <PubSubClient.h>
+#include <ArduinoJson.h>
+```
+
+## 📊 MQTT Message Formats
+
+### Sensor Data (Published by devices)
+```javascript
+// Temperature (home/sensor/temperature)
+"23.5"
+
+// Humidity (home/sensor/humidity) 
+"65.2"
+
+// Rain Sensor (home/sensors/rain)
+{
+    "raining": false,
+    "sensor_value": 723,
+    "timestamp": 1640995200
+}
+
+// System Status (home/system/status)
+{
+    "wifi_rssi": -45,
+    "free_heap": 234567,
+    "heap_usage_percent": 15.2,
+    "mqtt_connected": true,
+    "uptime_ms": 3600000
+}
+```
+
+### Control Commands (Published by dashboard)
+```javascript
+// Light Control (home/lights/1, home/lights/2, home/lights/3, home/lights/4)
+"ON" or "OFF"
+
+// Buzzer Control (home/buzzer/command)
+"ON" or "OFF"
+```
+
+## 🛠️ Development
+
+### Project Structure
+```
+smart-home-dashboard/
+├── index.html              # Main dashboard file
+├── dashboard-config.js     # Configuration file
+├── README.md              # This file
+└── assets/               # Optional: custom icons/images
+```
+
+### Key Technologies
+- **HTML5** - Semantic structure
+- **CSS3** - Custom properties, Grid, Flexbox
+- **JavaScript ES6+** - Modern async/await, modules
+- **MQTT.js** - WebSocket MQTT client library
+
+### Browser Compatibility
+- Chrome/Edge 80+
+- Firefox 75+
+- Safari 13+
+- Mobile browsers (iOS Safari, Chrome Mobile)
+
+## 🔒 Security Notes
+
+### For Production Use:
+1. **Use WSS (WebSocket Secure)** connections
+2. **Enable MQTT authentication** (username/password)
+3. **Use proper SSL certificates** for your broker
+4. **Implement MQTT ACLs** to restrict topic access
+5. **Consider VPN** for remote access
+
+### Development Setup:
+- Local brokers (Mosquitto) can use unsecured WS
+- Public brokers should always use authentication
+
+## 🐛 Troubleshooting
+
+### Common Issues:
+
+#### "MQTT Connection Failed"
+```javascript
+// Check browser console for detailed error
+// Verify broker settings in dashboard-config.js
+// Ensure broker allows WebSocket connections
+// Check firewall/network settings
+```
+
+#### "WebSocket Connection Blocked"
+```javascript
+// HTTPS pages can only connect to WSS (secure) brokers
+// HTTP pages can connect to both WS and WSS
+// Use matching protocols: HTTP+WS or HTTPS+WSS
+```
+
+#### "No Data Received"
+```javascript
+// Verify your device is publishing to correct topics
+// Check topic names match configuration
+// Ensure device is connected to same broker
+// Check broker logs for message activity
+```
+
+### Debug Mode
+Open browser Developer Tools (F12) and check Console tab for detailed logs.
+
+## 🚀 Advanced Features
+
+### Custom Animations
+Add your own CSS animations:
+```css
+.custom-pulse {
+    animation: customPulse 2s infinite;
+}
+
+@keyframes customPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+```
+
+### Additional Sensors
+Extend the dashboard by adding new sensor cards:
+```html
+<div class="card">
+    <div class="card-header">
+        <h3 class="card-title">Air Quality</h3>
+        <div class="card-icon">🌬️</div>
+    </div>
+    <div class="sensor-value" id="air-quality">--</div>
+    <div class="sensor-unit">AQI</div>
+</div>
+```
+
+### Custom Controls
+Add new control types:
+```html
+<div class="control-item">
+    <span class="control-label">Fan Speed</span>
+    <input type="range" min="0" max="100" value="50" 
+           onchange="setFanSpeed(this.value)">
+</div>
+```
+
+## 📄 License
+
+MIT License - feel free to modify and use in your projects!
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Submit a pull request
+
+## 📞 Support
+
+For issues and questions:
+- Check the troubleshooting section
+- Open an issue on GitHub
+- Review browser console for error details
+
+---
+
+**Built with ❤️ for the IoT community** 
